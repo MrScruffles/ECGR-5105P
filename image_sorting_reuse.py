@@ -128,13 +128,16 @@ def train_and_save_model():
     with open(LABEL_ENCODER_PATH, 'wb') as f:
         pickle.dump(label_encoder, f)
     
+    # Make sure categories is a list to avoid any type issues later
+    categories_list = list(categories)
+    
     # Save the categories
     with open(CATEGORIES_PATH, 'wb') as f:
-        pickle.dump(categories, f)
+        pickle.dump(categories_list, f)
     
     print("Model and associated data saved successfully.")
     
-    return model, label_encoder, categories
+    return model, label_encoder, categories_list
 
 def load_saved_model():
     """Load the previously trained model and associated data."""
@@ -148,6 +151,10 @@ def load_saved_model():
     # Load the categories
     with open(CATEGORIES_PATH, 'rb') as f:
         categories = pickle.load(f)
+    
+    # Ensure categories is a list
+    if not isinstance(categories, list):
+        categories = list(categories)
     
     print(f"Model loaded successfully for {len(categories)} categories: {categories}")
     
@@ -165,26 +172,41 @@ def sort_images(model, label_encoder, categories, input_dir=None):
     for category in categories:
         os.makedirs(os.path.join(FINAL_SORTED_DIR, category), exist_ok=True)
     
+    # Convert categories to a list if it's not already
+    if not isinstance(categories, list):
+        categories = list(categories)
+    
     # Process each image in the input directory
     sorted_count = 0
     for img_name in os.listdir(input_dir):
         img_path = os.path.join(input_dir, img_name)
         if img_path.lower().endswith(('.png', '.jpg', '.jpeg')):
-            # Extract features
-            features = extract_features(img_path)
-            if features is None:
+            try:
+                # Extract features
+                features = extract_features(img_path)
+                if features is None:
+                    continue
+                
+                # Predict category
+                prediction = model.predict(features)
+                category_idx = np.argmax(prediction)
+                predicted_label = label_encoder.inverse_transform([category_idx])[0]
+                
+                # The predicted_label should directly correspond to one of the categories
+                if predicted_label in categories:
+                    category = predicted_label
+                else:
+                    # If not, try to find it by index
+                    category = categories[category_idx]
+                
+                # Copy the image to the appropriate category in finalSorted
+                dest_path = os.path.join(FINAL_SORTED_DIR, category, img_name)
+                shutil.copy(img_path, dest_path)
+                sorted_count += 1
+                print(f"Sorted {img_name} into {category}")
+            except Exception as e:
+                print(f"Error processing {img_name}: {e}")
                 continue
-            
-            # Predict category
-            prediction = model.predict(features)
-            category_idx = np.argmax(prediction)
-            category = categories[label_encoder.inverse_transform([category_idx])[0]]
-            
-            # Copy the image to the appropriate category in finalSorted
-            dest_path = os.path.join(FINAL_SORTED_DIR, category, img_name)
-            shutil.copy(img_path, dest_path)
-            sorted_count += 1
-            print(f"Sorted {img_name} into {category}")
     
     print(f"Successfully sorted {sorted_count} images.")
 
